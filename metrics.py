@@ -104,14 +104,67 @@ def check_feature_distributions(x, y):
             result['internal_sep'].append(i)
     return result
 
-def plot_1d(x, y, f):
-    x_0 = x[y==0][:,f]
-    x_1 = x[y==1][:,f]
-    plt.plot(x_0, np.zeros(len(x_0)), '.', alpha=0.5, color='b')
-    plt.plot(x_1, np.zeros(len(x_1)) + 1, '.', alpha=0.5, color='r')
 
-def plot_1d(x, y, f):
-    x_0 = x[y==0][:,f]
-    x_1 = x[y==1][:,f]
-    plt.plot(x_0, np.zeros(len(x_0)), '.', alpha=0.5, color='b')
-    plt.plot(x_1, np.zeros(len(x_1)) + 1, '.', alpha=0.5, color='r')
+def sample_over_feature_score(df):
+    features = df.shape[1]
+    samples = df.shape[0]
+    if samples < 1000:
+        penalty = 0.10
+    else:
+        penalty = 0
+    raw_score = samples/features
+    if (raw_score > 0 and raw_score < 1):
+        return 0.1
+    if (raw_score >= 1 and raw_score < 10):
+        return 0.2
+    if (raw_score >= 10 and raw_score < 100):
+        return 0.5
+    if (raw_score >= 100 and raw_score < 200):
+        return 0.90 - penalty
+    if (raw_score >= 200):
+        return 0.95 - penalty
+    
+    return 0
+
+class ModelChooser:
+    def __init__(self):
+        pass
+    
+    def decide(self, x, y, verbose=True):
+        # feature distros: 0.8, n/f: 0.2
+        rf_score = 0
+        
+        # metric n/f
+        rf_penalty = 1 - sample_over_feature_score(x)
+        rf_score -= 0.2 * rf_penalty
+        
+        # feature distros
+        result = check_feature_distributions(x, y)
+        if verbose:
+            print("Feature distribution summary:\n", result, end='\n\n')
+        rf_bonus = self._get_feature_distribution_score(result, x.shape[1])
+        rf_score += 0.8 * rf_bonus
+        
+        if rf_score > x.shape[1] * 0.2:
+            print("Random Forest is the better option")
+        else:
+            print("Logistic Regression is the better option")
+        
+    
+    def _get_feature_distribution_score(self, result, nf):
+        """
+            What positively affects RF score:
+             - no logit + internal_sep = non-linear
+             - low number of logits/half-logits
+            
+        """
+        score = 0
+        for f in result['internal_sep']:
+            if f not in result['logit']:
+                score += 0.3
+        
+        # weights logit over half-logit, sees if it is under a third of the number of features
+        if 0.66*len(result['logit']) + 0.33*len(result['half-logit']) < 0.2 * nf:
+            score += 0.5
+        
+        return score
